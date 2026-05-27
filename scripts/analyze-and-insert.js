@@ -27,29 +27,42 @@ function getMediaType(filePath) {
   return map[ext] || 'image/jpeg';
 }
 
-async function analyzeImage(filePath) {
+async function analyzeImage(filePath, retries = 5) {
   const rawUrl = `https://raw.githubusercontent.com/hjourneyk/gallery-images/main/${filePath}`;
   const base64 = await fetchImageAsBase64(rawUrl);
   const mediaType = getMediaType(filePath);
 
-  const response = await anthropic.messages.create({
-    model: 'claude-opus-4-7',
-    max_tokens: 1024,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-          { type: 'text', text: ANALYSIS_PROMPT },
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const response = await anthropic.messages.create({
+        model: 'claude-opus-4-7',
+        max_tokens: 1024,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+              { type: 'text', text: ANALYSIS_PROMPT },
+            ],
+          },
         ],
-      },
-    ],
-  });
+      });
 
-  const text = response.content[0].text.trim();
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error(`No JSON in Claude response: ${text}`);
-  return JSON.parse(jsonMatch[0]);
+      const text = response.content[0].text.trim();
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error(`No JSON in Claude response: ${text}`);
+      return JSON.parse(jsonMatch[0]);
+    } catch (err) {
+      const isOverloaded = err.status === 529 || err.message?.includes('overloaded');
+      if (isOverloaded && attempt < retries) {
+        const delay = Math.min(30000, 5000 * attempt);
+        console.log(`API overloaded, retrying in ${delay / 1000}s... (attempt ${attempt}/${retries})`);
+        await new Promise(res => setTimeout(res, delay));
+      } else {
+        throw err;
+      }
+    }
+  }
 }
 
 async function processImage(filePath) {
