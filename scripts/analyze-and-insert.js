@@ -1,13 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
 const VALID_CATEGORIES = ['Architecture', 'Concept Art', 'Texture', 'Reference', 'Photorealistic'];
+
+let anthropic;
+let supabase;
 
 const ANALYSIS_PROMPT = `You are a metadata generator for an AI image gallery. Analyze this image and return ONLY a JSON object.
 Fields:
@@ -36,7 +33,7 @@ async function analyzeImage(filePath) {
   const mediaType = getMediaType(filePath);
 
   const response = await anthropic.messages.create({
-    model: 'claude-opus-4-5',
+    model: 'claude-opus-4-7',
     max_tokens: 1024,
     messages: [
       {
@@ -88,6 +85,14 @@ async function processImage(filePath) {
 }
 
 async function main() {
+  const { ANTHROPIC_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env;
+  if (!ANTHROPIC_API_KEY || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error('Missing required env vars: ANTHROPIC_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY');
+  }
+
+  anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+  supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
   const newImages = (process.env.NEW_IMAGES || '').trim();
   if (!newImages) {
     console.log('No new images to process.');
@@ -97,13 +102,22 @@ async function main() {
   const files = newImages.split('\n').map(f => f.trim()).filter(Boolean);
   console.log(`Processing ${files.length} image(s)...`);
 
+  let failed = 0;
   for (const file of files) {
     try {
       await processImage(file);
     } catch (err) {
       console.error(`Error processing ${file}:`, err.message);
+      failed++;
     }
+  }
+
+  if (failed > 0) {
+    throw new Error(`${failed} of ${files.length} image(s) failed to process`);
   }
 }
 
-main();
+main().catch(err => {
+  console.error('Fatal:', err.message);
+  process.exit(1);
+});
