@@ -1,0 +1,45 @@
+name: Sync Images to Supabase
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'images/**'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Get newly added images
+        id: new-images
+        run: |
+          NEW_FILES=$(git diff --diff-filter=A HEAD~1 HEAD --name-only | grep -E '\.(jpg|jpeg|png|webp|gif)$' || true)
+          echo "files<<EOF" >> $GITHUB_OUTPUT
+          echo "$NEW_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Setup Node.js
+        if: steps.new-images.outputs.files != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        if: steps.new-images.outputs.files != ''
+        run: npm install
+
+      - name: Analyze and insert images
+        if: steps.new-images.outputs.files != ''
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEW_IMAGES: ${{ steps.new-images.outputs.files }}
+        run: node scripts/analyze-and-insert.js
