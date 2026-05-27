@@ -93,7 +93,13 @@ async function processImage(filePath) {
     tags: metadata.tags,
   });
 
-  if (error) throw new Error(`Supabase insert failed for ${filePath}: ${error.message}`);
+  if (error) {
+    if (error.message?.includes('duplicate key value violates unique constraint')) {
+      console.log(`Skipping (already exists in DB): ${filePath}`);
+      return;
+    }
+    throw new Error(`Supabase insert failed for ${filePath}: ${error.message}`);
+  }
   console.log(`Inserted: ${filePath} → "${metadata.title}"`);
 }
 
